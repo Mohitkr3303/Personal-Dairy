@@ -4,7 +4,6 @@ import { NoteModel } from "@/models/Note.model";
 import { NextResponse } from "next/server";
 import { connectRedis } from "@/lib/redis";
 
-const CACHE_TTL_SECONDS = 60 * 60; // 1 hour
 const cacheKeyFor = (userId: string) => `notes:${userId}`;
 
 // Cache helpers: Redis failures should never break the API
@@ -22,7 +21,7 @@ async function getCache(key: string) {
 async function setCache(key: string, value: unknown) {
   try {
     const redis = await connectRedis();
-    await redis.set(key, JSON.stringify(value), { EX: CACHE_TTL_SECONDS });
+    await redis.set(key, JSON.stringify(value));
   } catch (err) {
     console.error("Redis set failed:", err);
   }
