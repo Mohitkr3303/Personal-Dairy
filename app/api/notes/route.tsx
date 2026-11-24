@@ -1,68 +1,105 @@
-import { Auth_JWT } from "@/lib/auth";
 import { dbConnect } from "@/lib/db";
 import { auth } from "@/lib/nextAuth";
 import { NoteModel } from "@/models/Note.model";
 import { NextResponse } from "next/server";
+import { connectRedis } from "@/lib/redis";
 
+const CACHE_TTL_SECONDS = 60 * 60; // 1 hour
+const cacheKeyFor = (userId: string) => `notes:${userId}`;
+
+// Cache helpers: Redis failures should never break the API
+async function getCache(key: string) {
+  try {
+    const redis = await connectRedis();
+    const cached = await redis.get(key);
+    return cached ? JSON.parse(cached) : null;
+  } catch (err) {
+    console.error("Redis get failed:", err);
+    return null;
+  }
+}
+
+async function setCache(key: string, value: unknown) {
+  try {
+    const redis = await connectRedis();
+    await redis.set(key, JSON.stringify(value), { EX: CACHE_TTL_SECONDS });
+  } catch (err) {
+    console.error("Redis set failed:", err);
+  }
+}
+
+async function invalidateCache(key: string) {
+  try {
+    const redis = await connectRedis();
+    await redis.del(key);
+  } catch (err) {
+    console.error("Redis del failed:", err);
+  }
+}
+
+const unauthorized = () =>
+  NextResponse.json(
+    { success: false, message: "Unauthorized Request" },
+    { status: 401 },
+  );
 
 export async function GET() {
   try {
-    await dbConnect();
-
     const session = await auth();
+    if (!session?.user?.id) return unauthorized();
 
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized Request",
-        },
-        { status: 401 }
-      );
+    const userId = session.user.id;
+    const cacheKey = cacheKeyFor(userId);
+
+    const cachedNotes = await getCache(cacheKey);
+    if (cachedNotes) {
+      return NextResponse.json({
+        success: true,
+        message: "Notes fetched from Redis",
+        Data: cachedNotes,
+      });
     }
 
-    const notes = await NoteModel.find({
-      user: session.user.id,
-    }).sort({ createdAt: -1 });
+    await dbConnect();
+    const notes = await NoteModel.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    await setCache(cacheKey, notes);
 
     return NextResponse.json({
       success: true,
-      message: notes.length
-        ? "Notes fetched successfully"
-        : "No notes found",
-      data: notes,
+      message: "Notes fetched from MongoDB",
+      Data: notes,
     });
   } catch (error) {
-    console.error("Failed to get notes:", error);
-
+    console.error("Failed to fetch notes:", error);
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to get notes",
-      },
-      { status: 500 }
+      { success: false, message: "Failed to fetch notes" },
+      { status: 500 },
     );
   }
 }
 
 export async function POST(request: Request) {
   try {
-    await dbConnect();
     const session = await auth();
+    if (!session?.user?.id) return unauthorized();
+
+    await dbConnect();
     const { title, content } = await request.json();
-    const noteBody = await NoteModel.create({
-      user: session?.user?.id,
-      title,
-      content,
-    });
+    const userId = session.user.id;
 
-    console.log("noteBody: ", title, content);
+    const noteBody = await NoteModel.create({ user: userId, title, content });
 
-    if (!noteBody)
-      NextResponse.json(
+    if (!noteBody) {
+      return NextResponse.json(
         { success: false, message: "Failed to create note" },
         { status: 500 },
       );
+    }
+
+    await invalidateCache(cacheKeyFor(userId));
 
     return NextResponse.json(
       { success: true, message: "Create note successfully", Data: noteBody },
@@ -79,16 +116,24 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const session = await auth();
+    if (!session?.user?.id) return unauthorized();
+
+    await dbConnect();
     const { Id } = await request.json();
+    const userId = session.user.id;
 
-    console.log("Id: ", Id);
-    const noteBody = await NoteModel.findByIdAndDelete(Id);
+    // Scoped to the owner
+    const noteBody = await NoteModel.findOneAndDelete({ _id: Id, user: userId });
 
-    if (!noteBody)
-      NextResponse.json(
-        { success: false, message: "Failed to Delete Note" },
-        { status: 400 },
+    if (!noteBody) {
+      return NextResponse.json(
+        { success: false, message: "Note not found" },
+        { status: 404 },
       );
+    }
+
+    await invalidateCache(cacheKeyFor(userId));
 
     return NextResponse.json(
       { success: true, message: "Delete Note Successfully" },
@@ -105,19 +150,27 @@ export async function DELETE(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { title, content, Id } = await request.json();
-    const noteUpdate = await NoteModel.findByIdAndUpdate(Id, {
-      $set: {
-        title,
-        content,
-      },
-    });
+    const session = await auth();
+    if (!session?.user?.id) return unauthorized();
 
-    if (!noteUpdate)
-      NextResponse.json(
+    await dbConnect();
+    const { title, content, Id } = await request.json();
+    const userId = session.user.id;
+
+    const noteUpdate = await NoteModel.findOneAndUpdate(
+      { _id: Id, user: userId },
+      { $set: { title, content } },
+      { new: true },
+    );
+
+    if (!noteUpdate) {
+      return NextResponse.json(
         { success: false, message: "Note not found" },
-        { status: 400 },
+        { status: 404 },
       );
+    }
+
+    await invalidateCache(cacheKeyFor(userId));
 
     return NextResponse.json(
       { success: true, message: "Update Note Successfully", Data: noteUpdate },
