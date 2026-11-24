@@ -122,8 +122,6 @@ function NotesClient() {
     try {
       const res = await axios.get<NotesResponse>("/api/notes");
 
-      console.log("res: ",res);
-
       if (res.data?.success) {
         setgetNotes(res.data.Data);
       }
