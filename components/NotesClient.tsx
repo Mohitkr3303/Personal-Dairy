@@ -27,7 +27,7 @@ interface User {
 }
 
 interface NotesResponse {
-  data: Note[];
+  Data: Note[];
   success: boolean;
   user: User;
 }
@@ -122,8 +122,10 @@ function NotesClient() {
     try {
       const res = await axios.get<NotesResponse>("/api/notes");
 
+      console.log("res: ",res);
+
       if (res.data?.success) {
-        setgetNotes(res.data.data);
+        setgetNotes(res.data.Data);
       }
     } catch (error) {
       console.error("Failed to Get Notes", error);
@@ -275,7 +277,7 @@ function NotesClient() {
         {/* Header */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-white">My Notes</h1>
+            <h1 className="text-3xl font-bold text-white">My Own Dairy</h1>
 
             <p className="text-gray-400 mt-2">
               Capture your thoughts, ideas and reminders.
@@ -304,7 +306,7 @@ function NotesClient() {
           className="bg-[#181b23] p-6 rounded-xl border border-gray-800 space-y-4"
         >
           <h2 className="text-xl font-semibold text-gray-200">
-            {editingNote ? "Update Note" : "Create New Note"}
+            {editingNote ? "Update Thoughts" : "Create New Thoughts"}
           </h2>
 
           {/* Title */}
@@ -313,7 +315,7 @@ function NotesClient() {
               required: "Title is Required",
             })}
             type="text"
-            placeholder="Note title..."
+            placeholder="Thoughts title..."
             aria-invalid={!!errors.title}
             className="w-full bg-[#0f1117] border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -329,7 +331,7 @@ function NotesClient() {
             {...register("content", {
               required: "Content is Required",
             })}
-            placeholder="Write your note here..."
+            placeholder="Write your thoughts here..."
             rows={5}
             aria-invalid={!!errors.content}
             className="w-full bg-[#0f1117] border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 resize-none outline-none focus:ring-2 focus:ring-blue-500"
@@ -360,21 +362,21 @@ function NotesClient() {
               {loading
                 ? "Saving..."
                 : editingNote
-                  ? "Update Note"
-                  : "Save Note"}
+                  ? "Update thoughts"
+                  : "Save thoughts"}
             </button>
           </div>
         </form>
 
         {/* Notes List */}
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold text-gray-200">Your Notes</h2>
+          <h2 className="text-xl font-semibold text-gray-200">Your Thoughts</h2>
 
           {loading && getNotes?.length === 0 ? (
-            <p className="text-gray-400">Loading notes...</p>
+            <p className="text-gray-400">Loading thoughts...</p>
           ) : getNotes?.length === 0 ? (
             <p className="text-gray-400">
-              No notes found. Create your first note!
+              No thoughts found. Create your first thoughts!
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
